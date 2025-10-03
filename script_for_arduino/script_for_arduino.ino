@@ -1,47 +1,113 @@
-#define REMOTEXY_MODE__WIFI_CLOUD
 #include <ESP8266WiFi.h>
-#define REMOTEXY_WIFI_SSID "ТУТ_БЫЛ_МОЙ_ВАЙФАЙ"
-#define REMOTEXY_WIFI_PASSWORD "ТУТ_БЫЛ_МОЙ_ПАРОЛЬ_ОТ_ВАЙФАЯ"
-#define REMOTEXY_CLOUD_SERVER "cloud.remotexy.com"
-#define REMOTEXY_CLOUD_PORT 6376
-#define REMOTEXY_CLOUD_TOKEN "ТУТ_БЫЛ_МОЙ_ТОКЕН"
-#include <RemoteXY.h>
+#include <UniversalTelegramBot.h>
 #include <DHT.h>
+#include "secrets.h"
 
-#define DHTPIN 15
+WiFiClientSecure secured_client;
+X509List cert(TELEGRAM_CERTIFICATE_ROOT);
+UniversalTelegramBot bot(BOT_TOKEN, secured_client);
+const unsigned long BOT_MTBS = 5000;
+unsigned long bot_lasttime = 0;
+float temperature, humidity;
+const float maxTemp = 30.0;
+const float maxHum = 60.0, minHum = 35.0;
+bool tempAlertSent = false;
+bool humAlertSent = false;
+
+#define LEDPIN D4
+#define DHTPIN D2 
 #define DHTTYPE DHT22
 DHT dht(DHTPIN, DHTTYPE);
 
-#pragma pack(push, 1)  
-uint8_t RemoteXY_CONF[] =   
-  { 255,0,0,16,0,59,0,19,0,0,0,65,117,116,111,72,117,109,105,100,
-  105,116,121,0,31,1,106,200,1,1,4,0,67,11,67,40,10,78,2,26,
-  2,67,58,67,40,10,78,2,26,2,68,11,79,40,40,1,8,36,68,58,
-  79,40,40,1,8,36 };
-  
-struct {
-  float value_01;
-  float value_02;
-  float onlineGraph_01_var1;
-  float onlineGraph_02_var1;
-  uint8_t connect_flag;
+void handleNewMessages(int numNewMessages);
 
-} RemoteXY;   
-#pragma pack(pop)
+void criticalTemperature();
+void criticalHumidity();
 
-void setup() 
-{
-  RemoteXY_Init (); 
+void setup(){
+  Serial.begin(115200);
+  configTime(0, 0, "pool.ntp.org");
+  secured_client.setTrustAnchors(&cert);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED){
+    delay(500);
+  }
   dht.begin();
+  pinMode(LEDPIN, OUTPUT);
 }
 
-void loop() 
-{ 
-  RemoteXY_Handler ();
-  float h = dht.readHumidity();
-  float t = dht.readTemperature();
-  RemoteXY.value_01 = t;
-  RemoteXY.value_02 = h;
-  RemoteXY.onlineGraph_01_var1 = t;
-  RemoteXY.onlineGraph_02_var1 = h;
+void loop(){
+  if(millis()-bot_lasttime > BOT_MTBS){
+    temperature = dht.readTemperature();
+    humidity = dht.readHumidity();
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    while (numNewMessages){
+      handleNewMessages(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+    bot_lasttime = millis();
+    criticalTemperature();
+    criticalHumidity();
+  }
+}
+
+void handleNewMessages(int numNewMessages){
+  for (int i=0; i < numNewMessages; i++){
+    if (bot.messages[i].chat_id == CHAT_ID){
+      String text = bot.messages[i].text;
+      if (text == "/start"){
+        String startInfo = "👋 Привет! Я домашний бот на ESP.\n\n";
+        startInfo += "Вот что я умею:\n";
+        startInfo += "🌡 /temp — показать текущую температуру\n";
+        startInfo += "💦 /humidity — показать влажность\n";
+        startInfo += "💡 /ledon — включить LED ленту\n";
+        startInfo += "💤 /ledoff — выключить LED ленту\n";
+        bot.sendMessage(CHAT_ID, startInfo, "");
+      }
+      if (text == "/temp"){
+        String temp = "🌡 Температуры комнаты в данный момент составляет: " + String(temperature) + "°С";
+        bot.sendMessage(CHAT_ID, temp, "");
+      }
+      if (text == "/humidity"){
+        String temp = "💦 Влажность комнаты в данный момент составляет: " + String(humidity) + "%";
+        bot.sendMessage(CHAT_ID, temp, "");
+      }
+      if (text == "/ledon"){
+        digitalWrite(LED_BUILTIN, LOW);
+      }
+      if (text == "/ledoff"){
+        digitalWrite(LED_BUILTIN, HIGH);
+      }
+    }
+  }
+}
+
+void criticalTemperature() {
+  if (temperature >= maxTemp) {
+    if (!tempAlertSent) {
+      String crittemp = "🔥 Температура слишком высокая: " + String(temperature) + "°С\nПроветрите помещение!";
+      bot.sendMessage(CHAT_ID, crittemp, "");
+      tempAlertSent = true;
+    }
+  } else {
+    tempAlertSent = false;
+  }
+}
+
+void criticalHumidity() {
+  if (humidity >= maxHum) {
+    if (!humAlertSent) {
+      String crithum = "💧 Слишком влажно: " + String(humidity) + "%\nПроветрите помещение!";
+      bot.sendMessage(CHAT_ID, crithum, "");
+      humAlertSent = true;
+    }
+  } else if (humidity <= minHum) {
+    if (!humAlertSent) {
+      String crithum = "🌵 Слишком сухо: " + String(humidity) + "%\nВключите увлажнитель!";
+      bot.sendMessage(CHAT_ID, crithum, "");
+      humAlertSent = true;
+    }
+  } else {
+    humAlertSent = false; 
+  }
 }

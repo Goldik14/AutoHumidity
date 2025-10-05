@@ -1,6 +1,7 @@
 #include <ESP8266WiFi.h>
 #include <UniversalTelegramBot.h>
 #include <DHT.h>
+#include <Adafruit_NeoPixel.h>
 #include "secrets.h"
 
 WiFiClientSecure secured_client;
@@ -14,13 +15,23 @@ const float maxHum = 60.0, minHum = 35.0;
 bool tempAlertSent = false;
 bool humAlertSent = false;
 
-#define LEDPIN D4
 #define DHTPIN D2 
 #define DHTTYPE DHT22
 DHT dht(DHTPIN, DHTTYPE);
 
-void handleNewMessages(int numNewMessages);
+bool ledEnabled = true; // лента включена по умолчанию
+int animationOffset = 0;
+unsigned long lastAnimationTime = 0;
+#define LED_PIN    D7
+#define LED_COUNT  60
+#define BRIGHTNESS 30
+#define DOTS       4
+#define GAP        8
+#define SPEED      60
+Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
+void handleNewMessages(int numNewMessages);
+void SetColorLent();
 void criticalTemperature();
 void criticalHumidity();
 
@@ -33,7 +44,9 @@ void setup(){
     delay(500);
   }
   dht.begin();
-  pinMode(LEDPIN, OUTPUT);
+  strip.begin();
+  strip.show();
+  strip.setBrightness(BRIGHTNESS);
 }
 
 void loop(){
@@ -49,6 +62,7 @@ void loop(){
     criticalTemperature();
     criticalHumidity();
   }
+  SetColorLent();
 }
 
 void handleNewMessages(int numNewMessages){
@@ -73,12 +87,49 @@ void handleNewMessages(int numNewMessages){
         bot.sendMessage(CHAT_ID, temp, "");
       }
       if (text == "/ledon"){
-        digitalWrite(LED_BUILTIN, LOW);
+        ledEnabled = true;
+        bot.sendMessage(CHAT_ID, "💡 LED лента включена", "");
       }
+
       if (text == "/ledoff"){
-        digitalWrite(LED_BUILTIN, HIGH);
+        ledEnabled = false;
+        strip.clear();
+        strip.show();
+        bot.sendMessage(CHAT_ID, "💤 LED лента выключена", "");
       }
     }
+  }
+}
+
+void SetColorLent() {
+  if (!ledEnabled) return;  // если лента выключена — выходим
+
+  if (millis() - lastAnimationTime < SPEED) return;
+  lastAnimationTime = millis();
+
+  strip.clear();
+
+  uint32_t color;
+  if (humidity > 60) color = strip.Color(128, 0, 128);       // 💜
+  else if (humidity > 45) color = strip.Color(0, 255, 0);    // 💚
+  else if (humidity > 35) color = strip.Color(255, 255, 0);  // 💛
+  else color = strip.Color(255, 0, 0);                       // ❤️
+
+  for (int start = -animationOffset; start < LED_COUNT; start += (DOTS + GAP)) {
+    for (int i = 0; i < DOTS; i++) {
+      int pos = start + i;
+      if (pos >= 0 && pos < LED_COUNT) {
+        int mirroredPos = (LED_COUNT - 1) - pos;
+        strip.setPixelColor(mirroredPos, color);
+      }
+    }
+  }
+
+  strip.show();
+
+  animationOffset++;
+  if (animationOffset > LED_COUNT + DOTS + GAP) {
+    animationOffset = 0;
   }
 }
 

@@ -30,6 +30,8 @@ unsigned long lastAnimationTime = 0;
 #define SPEED      60
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
+#define RELAY_IN D1
+
 void handleNewMessages(int numNewMessages);
 void SetColorLent();
 void criticalTemperature();
@@ -47,6 +49,7 @@ void setup(){
   strip.begin();
   strip.show();
   strip.setBrightness(BRIGHTNESS);
+  pinMode(RELAY_IN, OUTPUT);
 }
 
 void loop(){
@@ -96,6 +99,14 @@ void handleNewMessages(int numNewMessages){
         strip.clear();
         strip.show();
         bot.sendMessage(CHAT_ID, "💤 LED лента выключена", "");
+      }
+      if(text == "/relayoff"){
+        digitalWrite(RELAY_IN, HIGH);
+        bot.sendMessage(CHAT_ID, "🔌 Реле выключено", "");
+      }
+      if(text == "/relayon"){
+        digitalWrite(RELAY_IN, LOW);
+        bot.sendMessage(CHAT_ID, "🔌 Реле включено", "");
       }
     }
   }
